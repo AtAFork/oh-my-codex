@@ -1520,7 +1520,7 @@ function resolveGovernancePolicy(
 }
 
 async function assertNestedTeamAllowed(cwd: string): Promise<void> {
-  const workerContext = parseTeamWorkerContext(process.env.OMX_TEAM_WORKER);
+  const workerContext = parseTeamWorkerContext(process.env.OMX_TEAM_INTERNAL_WORKER || process.env.OMX_TEAM_WORKER);
   if (!workerContext) return;
 
   for (const candidateCwd of resolveManifestLookupCwds(cwd)) {
@@ -2465,6 +2465,7 @@ export async function startTeam(
         [TEAM_STATE_ROOT_ENV]: teamStateRoot,
         [TEAM_LEADER_CWD_ENV]: leaderCwd,
         [MODEL_INSTRUCTIONS_FILE_ENV]: plan.instructionsFilePath,
+        OMX_TEAM_DISPLAY_NAME: displayName,
       };
       if (plan.workerWorkspace.worktreePath) {
         env.OMX_TEAM_WORKTREE_PATH = plan.workerWorkspace.worktreePath;

@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync } from "fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync } from "fs";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { join, relative, resolve } from "path";
 import { pathToFileURL } from "url";
@@ -2428,7 +2428,11 @@ export function isCodexNativeHookMainModule(
   argv1: string | undefined,
 ): boolean {
   if (!argv1) return false;
-  return moduleUrl === pathToFileURL(argv1).href;
+  try {
+    return moduleUrl === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return moduleUrl === pathToFileURL(argv1).href;
+  }
 }
 
 async function readStdinJson(): Promise<NativeHookCliReadResult> {

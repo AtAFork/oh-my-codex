@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -232,6 +232,27 @@ describe("codex native hook dispatch", () => {
       isCodexNativeHookMainModule(pathToFileURL(entryPath).href, entryPath),
       true,
     );
+  });
+
+  it("treats symlinked argv entry paths as the main module", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-main-symlink-"));
+    try {
+      const realDir = join(cwd, "real");
+      const linkDir = join(cwd, "link");
+      await mkdir(realDir, { recursive: true });
+      await mkdir(linkDir, { recursive: true });
+      const realEntryPath = join(realDir, "codex-native-hook.js");
+      const symlinkEntryPath = join(linkDir, "codex-native-hook.js");
+      await writeFile(realEntryPath, "", "utf-8");
+      await symlink(realEntryPath, symlinkEntryPath);
+
+      assert.equal(
+        isCodexNativeHookMainModule(pathToFileURL(realpathSync(realEntryPath)).href, symlinkEntryPath),
+        true,
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("does not treat a different module url as the main module", () => {

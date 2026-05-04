@@ -1,4 +1,6 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import {
   AutoresearchGoalError,
   buildAutoresearchGoalHandoff,
@@ -28,7 +30,13 @@ Artifacts:
 Goal-mode boundary:
   This command does not revive deprecated omx autoresearch and does not mutate hidden Codex /goal state.
   It writes durable OMX artifacts and prints a model-facing handoff for get_goal/create_goal/update_goal.
-  Completion is blocked until professor-critic validation records verdict=pass.
+  Completion is blocked until professor-critic validation records verdict=pass with a critic artifact path.
+
+Rubric input:
+  --rubric accepts inline text, an existing filesystem path, or @path.
+
+Completion gate:
+  Passing verdicts require --artifact <path>; assistant prose alone is not sufficient.
 `;
 
 function hasFlag(args: readonly string[], flag: string): boolean {
@@ -46,9 +54,11 @@ function readValue(args: readonly string[], flag: string): string | undefined {
   return value;
 }
 
-async function readMaybeFile(value: string | undefined): Promise<string | undefined> {
+async function readMaybeFile(value: string | undefined, cwd = process.cwd()): Promise<string | undefined> {
   if (!value) return undefined;
   if (value.startsWith('@')) return readFile(value.slice(1), 'utf-8');
+  const candidate = resolve(cwd, value);
+  if (existsSync(candidate)) return readFile(candidate, 'utf-8');
   return value;
 }
 
@@ -87,7 +97,7 @@ export async function autoresearchGoalCommand(args: string[]): Promise<void> {
 
     if (command === 'create' || command === 'init') {
       const topic = readValue(rest, '--topic') ?? positionalText(rest);
-      const rubric = await readMaybeFile(readValue(rest, '--rubric'));
+      const rubric = await readMaybeFile(readValue(rest, '--rubric'), cwd);
       const mission = await createAutoresearchGoal(cwd, {
         topic: topic ?? '',
         rubric: rubric ?? '',

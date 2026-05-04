@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import { slugifyMissionName } from './contracts.js';
 
 export const AUTORESEARCH_GOAL_ROOT = '.omx/goals/autoresearch';
@@ -84,6 +84,23 @@ function iso(now = new Date()): string {
 function requireText(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new AutoresearchGoalError(`Missing ${field}.`);
+  return trimmed;
+}
+
+async function requirePassingArtifact(cwd: string, artifactPath: string | undefined): Promise<string> {
+  const trimmed = artifactPath?.trim();
+  if (!trimmed) {
+    throw new AutoresearchGoalError('Passing professor-critic validation requires --artifact <path>; assistant prose alone is not sufficient.');
+  }
+  let artifactStat;
+  try {
+    artifactStat = await stat(resolve(cwd, trimmed));
+  } catch {
+    throw new AutoresearchGoalError(`Passing professor-critic artifact not found: ${trimmed}.`);
+  }
+  if (!artifactStat.isFile()) {
+    throw new AutoresearchGoalError(`Passing professor-critic artifact must be a file: ${trimmed}.`);
+  }
   return trimmed;
 }
 
@@ -187,6 +204,7 @@ export async function recordAutoresearchGoalVerdict(
     throw new AutoresearchGoalError(`Autoresearch goal ${mission.slug} is already complete; create a new goal or explicitly reopen via a future workflow before recording more verdicts.`);
   }
   const evidence = requireText(options.evidence, '--evidence');
+  const artifactPath = options.verdict === 'pass' ? await requirePassingArtifact(cwd, options.artifactPath) : options.artifactPath?.trim();
   const now = iso(options.now);
   const completion: AutoresearchGoalCompletion = {
     schema_version: 1,
@@ -195,7 +213,7 @@ export async function recordAutoresearchGoalVerdict(
     passed: options.verdict === 'pass',
     summary: options.summary?.trim() || evidence,
     evidence,
-    ...(options.artifactPath?.trim() ? { artifact_path: options.artifactPath.trim() } : {}),
+    ...(artifactPath ? { artifact_path: artifactPath } : {}),
     ...(mission.critic_command ? { critic_command: mission.critic_command } : {}),
     recorded_at: now,
   };
@@ -210,7 +228,7 @@ export async function recordAutoresearchGoalVerdict(
     slug: mission.slug,
     status: mission.status,
     evidence,
-    artifact_path: options.artifactPath,
+    artifact_path: artifactPath,
   });
   return { mission, completion };
 }

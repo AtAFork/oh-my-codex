@@ -1,6 +1,6 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { autoresearchGoalCommand, AUTORESEARCH_GOAL_HELP } from '../autoresearch-goal.js';
@@ -40,6 +40,8 @@ describe('cli/autoresearch-goal', () => {
     assert.match(AUTORESEARCH_GOAL_HELP, /does not revive deprecated omx autoresearch/i);
     assert.match(AUTORESEARCH_GOAL_HELP, /get_goal\/create_goal\/update_goal/i);
     assert.match(AUTORESEARCH_GOAL_HELP, /blocked until professor-critic validation records verdict=pass/i);
+    assert.match(AUTORESEARCH_GOAL_HELP, /--rubric accepts inline text, an existing filesystem path, or @path/i);
+    assert.match(AUTORESEARCH_GOAL_HELP, /Passing verdicts require --artifact <path>/i);
   });
 
   it('creates durable artifacts and emits a safe Codex goal handoff', async () => {
@@ -68,6 +70,22 @@ describe('cli/autoresearch-goal', () => {
     });
   });
 
+  it('accepts an existing rubric file path without @file syntax', async () => {
+    await withCwd(async (cwd) => {
+      const rubricPath = join(cwd, 'rubric.txt');
+      await writeFile(rubricPath, 'Professor critic must verify file-backed rubric input.\n', 'utf-8');
+
+      const created = await capture(() => autoresearchGoalCommand([
+        'create',
+        '--topic', 'File backed rubric',
+        '--rubric', rubricPath,
+      ]));
+
+      assert.equal(created.exitCode, undefined);
+      const storedRubric = await readFile(join(cwd, '.omx/goals/autoresearch/file-backed-rubric/rubric.md'), 'utf-8');
+      assert.equal(storedRubric, 'Professor critic must verify file-backed rubric input.\n');
+    });
+  });
 
   it('rejects missing values for value-taking flags instead of consuming the next flag', async () => {
     await withCwd(async () => {
@@ -104,12 +122,24 @@ describe('cli/autoresearch-goal', () => {
       const stillBlocked = await capture(() => autoresearchGoalCommand(['complete', '--slug', 'research-flaky-tests']));
       assert.equal(stillBlocked.exitCode, 1);
 
+      const proseOnlyPass = await capture(() => autoresearchGoalCommand([
+        'verdict',
+        '--slug', 'research-flaky-tests',
+        '--verdict', 'pass',
+        '--evidence', 'critic approved in assistant prose only',
+      ]));
+      assert.equal(proseOnlyPass.exitCode, 1);
+      assert.match(proseOnlyPass.stderr.join('\n'), /requires --artifact <path>/);
+
+      const artifactPath = '.omx/specs/autoresearch-flaky-tests/report.md';
+      await mkdir(join(cwd, '.omx/specs/autoresearch-flaky-tests'), { recursive: true });
+      await writeFile(join(cwd, artifactPath), 'critic approved report with reproduction logs and citations\n', 'utf-8');
       await capture(() => autoresearchGoalCommand([
         'verdict',
         '--slug', 'research-flaky-tests',
         '--verdict', 'pass',
         '--evidence', 'critic approved report.md with reproduction logs and citations',
-        '--artifact', '.omx/specs/autoresearch-flaky-tests/report.md',
+        '--artifact', artifactPath,
       ]));
       const completed = await capture(() => autoresearchGoalCommand(['complete', '--slug', 'research-flaky-tests']));
       assert.equal(completed.exitCode, undefined);

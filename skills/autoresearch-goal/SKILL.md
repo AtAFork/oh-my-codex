@@ -28,7 +28,9 @@ Use this workflow when a research mission should be bound to Codex goal-mode foc
 3. In the active Codex thread, call `get_goal`; call `create_goal` only if no active goal exists and the printed payload is the intended objective.
 4. Research iteratively against the rubric. Record every critic outcome:
    `omx autoresearch-goal verdict --slug <slug> --verdict <pass|fail|blocked> --evidence "..."`
-5. Completion is blocked until professor-critic validation records `verdict=pass`:
+   Passing verdicts must include a durable critic artifact path:
+   `omx autoresearch-goal verdict --slug <slug> --verdict pass --evidence "..." --artifact <path>`
+5. Completion is blocked until professor-critic validation records `verdict=pass` with the artifact path:
    `omx autoresearch-goal complete --slug <slug>`
 6. Only after `omx autoresearch-goal complete` updates the mission to `complete` and the completion audit passes, call `update_goal({status: "complete"})` for the active Codex goal.
 

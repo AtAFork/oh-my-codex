@@ -18,6 +18,11 @@ import { isUnderspecifiedForExecution, applyRalplanGate } from '../keyword-detec
 import { KEYWORD_TRIGGER_DEFINITIONS } from '../keyword-registry.js';
 
 describe('keyword detector swarm/team compatibility', () => {
+  it('detects explicit $runingteam activation', () => {
+    const match = detectPrimaryKeyword('$runingteam ship feature');
+    assert.equal(match?.skill, 'runingteam');
+  });
+
   it('keeps explicit $skill order in detectKeywords results (left-to-right)', () => {
     const matches = detectKeywords('$analyze $ultraqa $code-review now');
     assert.deepEqual(matches.map((m) => m.skill).slice(0, 3), ['analyze', 'ultraqa', 'code-review']);
@@ -353,6 +358,10 @@ describe('explicit skill-name invocation requirement', () => {
     assert.equal(detectPrimaryKeyword('please run autoresearch now'), null);
   });
 
+  it('does not trigger runingteam from bare skill-name usage', () => {
+    assert.equal(detectPrimaryKeyword('please inspect runingteam docs'), null);
+  });
+
   it('does not trigger ralph from bare skill-name usage', () => {
     assert.equal(detectPrimaryKeyword('please use ralph for this task'), null);
   });
@@ -380,6 +389,8 @@ describe('keyword registry coverage', () => {
     assert.ok(registryKeywords.has('wiki add'));
     assert.ok(registryKeywords.has('wiki lint'));
     assert.ok(registryKeywords.has('$autoresearch'));
+    assert.ok(registryKeywords.has('$runingteam'));
+    assert.ok(registryKeywords.has('runingteam'));
   });
 });
 
@@ -2069,3 +2080,4 @@ describe('applyRalplanGate', () => {
     assert.ok(result.gatedKeywords.includes('ultrawork'));
   });
 });
+

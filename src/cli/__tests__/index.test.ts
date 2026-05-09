@@ -193,6 +193,13 @@ describe("normalizeCodexLaunchArgs", () => {
     ]);
   });
 
+  it("strips --runingteam from leader args", () => {
+    assert.deepEqual(normalizeCodexLaunchArgs(["--runingteam", "--madmax", "ship"]), [
+      "ship",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+  });
+
   it("--madmax-spark does not inject spark model into leader args", () => {
     const args = normalizeCodexLaunchArgs(["--madmax-spark"]);
     assert.ok(
@@ -1137,6 +1144,13 @@ describe("resolveCliInvocation", () => {
     assert.deepEqual(resolveCliInvocation(["-v"]), {
       command: "version",
       launchArgs: [],
+    });
+  });
+
+  it("resolves --runingteam as launch passthrough", () => {
+    assert.deepEqual(resolveCliInvocation(["--runingteam", "--madmax"]), {
+      command: "launch",
+      launchArgs: ["--runingteam", "--madmax"],
     });
   });
 

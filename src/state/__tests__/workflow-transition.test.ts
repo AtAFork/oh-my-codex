@@ -10,7 +10,7 @@ describe('workflow transition rules', () => {
   it('allows the approved overlap matrix and denies unsupported combinations', () => {
     const cases: Array<{
       current: string[];
-      requested: 'team' | 'ralph' | 'ultrawork' | 'autopilot' | 'autoresearch';
+      requested: 'team' | 'runingteam' | 'ralph' | 'ultrawork' | 'autopilot' | 'autoresearch';
       allowed: boolean;
       resulting: string[];
     }> = [
@@ -71,6 +71,14 @@ describe('workflow transition rules', () => {
     assert.equal(ralplanToAutoresearch.kind, 'auto-complete');
     assert.deepEqual(ralplanToAutoresearch.autoCompleteModes, ['ralplan']);
     assert.deepEqual(ralplanToAutoresearch.resultingModes, ['autoresearch']);
+
+
+    const legacyChainToRuningTeam = evaluateWorkflowTransition(['ralplan', 'team'], 'runingteam');
+    assert.equal(legacyChainToRuningTeam.allowed, true);
+    assert.equal(legacyChainToRuningTeam.kind, 'auto-complete');
+    assert.deepEqual(legacyChainToRuningTeam.autoCompleteModes, ['ralplan', 'team']);
+    assert.deepEqual(legacyChainToRuningTeam.resultingModes, ['runingteam']);
+    assert.equal(legacyChainToRuningTeam.transitionMessage, 'mode transiting: ralplan -> runingteam');
   });
 
   it('builds rollback denial guidance for execution-to-planning transitions', () => {

@@ -1,5 +1,10 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { startMode, updateModeState } from '../modes/base.js';
+import { readApprovedExecutionLaunchHint, type ApprovedExecutionLaunchHint } from '../planning/artifacts.js';
+import { buildFollowupStaffingPlan, resolveAvailableAgentTypes } from '../team/followup-planner.js';
+import { buildRalphApprovedContextLines } from './ralph.js';
 import {
   createCheckpoint,
   createRuningTeamSession,
@@ -13,16 +18,34 @@ import {
   writeFinalSynthesis,
 } from '../runingteam/runtime.js';
 
-export const RUNINGTEAM_HELP = `
-Usage: omx runingteam "<task>"
-       omx runingteam status <session> [--json]
-       omx runingteam checkpoint <session> [--force]
-       omx runingteam revise <session>
-       omx runingteam finalize <session>
-       omx runingteam cancel <session>
+export const RUNINGTEAM_APPEND_ENV = 'OMX_RUNINGTEAM_APPEND_INSTRUCTIONS_FILE';
+const VALUE_TAKING_FLAGS = new Set(['--model', '--provider', '--config', '-c', '-i', '--images-dir']);
+const RUNINGTEAM_OMX_FLAGS = new Set(['--launch', '--no-launch']);
 
-RuningTeam is a first-class dynamic planning controller. It owns session state,
-checkpoint evidence, critic/planner loops, and the final-synthesis completion gate.
+export const RUNINGTEAM_HELP = `omx runingteam - Launch Codex with RuningTeam dynamic planning mode active
+
+Usage:
+  omx runingteam [task text...]
+  omx runingteam [runingteam-options] [codex-args...] [task text...]
+  omx runingteam create "<task>"
+  omx runingteam status <session> [--json]
+  omx runingteam checkpoint <session> [--force]
+  omx runingteam revise <session>
+  omx runingteam finalize <session>
+  omx runingteam cancel <session>
+
+Options:
+  --help, -h     Show this help message
+  --launch       Force interactive Codex launch after creating/activating state
+  --no-launch    Create a controller session only; do not launch Codex
+
+Launch shortcuts:
+  omx --runingteam [--madmax] [task text...]
+  omx --runingteam --madmax
+
+RuningTeam is a first-class dynamic planning + team orchestration mode. It
+replaces the manual ralplan -> team chain with a checkpoint-gated controller:
+Plan vN -> team batch -> evidence -> critic -> planner revision -> next batch.
 `;
 
 function hasFlag(args: string[], flag: string): boolean {
@@ -39,10 +62,165 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
+export function extractRuningTeamTaskDescription(args: readonly string[], fallbackTask?: string): string {
+  const words: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const token = args[i];
+    if (token === '--') {
+      for (let j = i + 1; j < args.length; j++) words.push(args[j]);
+      break;
+    }
+    if (token.startsWith('--') && token.includes('=')) { i++; continue; }
+    if (token.startsWith('-') && VALUE_TAKING_FLAGS.has(token)) { i += 2; continue; }
+    if (token.startsWith('-')) { i++; continue; }
+    words.push(token);
+    i++;
+  }
+  return words.join(' ') || fallbackTask || 'runingteam-cli-launch';
+}
+
+export function filterRuningTeamCodexArgs(args: readonly string[]): string[] {
+  const filtered: string[] = [];
+  for (const token of args) {
+    if (RUNINGTEAM_OMX_FLAGS.has(token.toLowerCase())) continue;
+    filtered.push(token);
+  }
+  return filtered;
+}
+
+function resolveApprovedRuningTeamExecutionHint(
+  candidate: ApprovedExecutionLaunchHint | null,
+  explicitTask: string,
+): ApprovedExecutionLaunchHint | null {
+  if (!candidate) return null;
+  if (explicitTask === 'runingteam-cli-launch') return candidate;
+  return candidate.task.trim() === explicitTask.trim() ? candidate : null;
+}
+
+function readMatchedApprovedRuningTeamExecutionHint(cwd: string, explicitTask: string): ApprovedExecutionLaunchHint | null {
+  return resolveApprovedRuningTeamExecutionHint(
+    readApprovedExecutionLaunchHint(
+      cwd,
+      'team',
+      explicitTask === 'runingteam-cli-launch' ? {} : { task: explicitTask },
+    ),
+    explicitTask,
+  );
+}
+
+export function buildRuningTeamAppendInstructions(
+  task: string,
+  options: { sessionId?: string; approvedHint?: ApprovedExecutionLaunchHint | null },
+): string {
+  return [
+    '<runingteam_dynamic_planning>',
+    'You are in OMX RuningTeam mode.',
+    `Primary task: ${task}`,
+    options.sessionId ? `RuningTeam controller session: ${options.sessionId}` : null,
+    '',
+    'Operating contract:',
+    '- Treat RuningTeam as the first-class dynamic planning system; do not require a separate `$ralplan` before using it.',
+    '- Use checkpoint-gated planning: Plan vN -> team batch -> evidence collection -> Critic review -> Planner revision -> Plan vN+1.',
+    '- Mutate the plan only at checkpoints, never while workers are actively executing a batch.',
+    '- Prefer existing OMX team state/events/locks/mailbox surfaces; do not invent a separate orchestration root unless explicitly needed.',
+    '- Use machine-readable worker evidence where possible: claim, files_changed, tests_run, blockers, next_needed.',
+    '- Enforce lane ownership, acceptance criteria lock, final verification, and a final synthesis before completion.',
+    '- If the user asks to implement, drive `omx team`/worker lanes from the current checkpoint plan and reconcile evidence before final approval.',
+    '- If no task was supplied at launch, ask for the task in one concise question, then start the RuningTeam loop.',
+    ...buildRalphApprovedContextLines(options.approvedHint ?? null),
+    '</runingteam_dynamic_planning>',
+  ].filter((line): line is string => typeof line === 'string').join('\n');
+}
+
+async function writeRuningTeamSessionInstructions(
+  cwd: string,
+  task: string,
+  options: { sessionId?: string; approvedHint?: ApprovedExecutionLaunchHint | null },
+): Promise<string> {
+  const dir = join(cwd, '.omx', 'runingteam');
+  await mkdir(dir, { recursive: true });
+  const instructionsPath = join(dir, 'session-instructions.md');
+  await writeFile(instructionsPath, `${buildRuningTeamAppendInstructions(task, options)}\n`);
+  return instructionsPath;
+}
+
+async function launchRuningTeamCodex(args: string[], cwd: string): Promise<void> {
+  const explicitTask = extractRuningTeamTaskDescription(args);
+  const approvedHint = readMatchedApprovedRuningTeamExecutionHint(cwd, explicitTask);
+  const task = explicitTask === 'runingteam-cli-launch' ? approvedHint?.task ?? explicitTask : explicitTask;
+  const controllerSession = task === 'runingteam-cli-launch' ? null : await createRuningTeamSession(task, cwd);
+  const availableAgentTypes = await resolveAvailableAgentTypes(cwd);
+  const staffingPlan = buildFollowupStaffingPlan('team', task, availableAgentTypes);
+  await startMode('runingteam', task, 50, cwd);
+  await updateModeState('runingteam', {
+    current_phase: 'planning',
+    controller_session_id: controllerSession?.session_id,
+    controller_state_path: controllerSession ? runingTeamPaths(cwd, controllerSession.session_id).root : undefined,
+    available_agent_types: availableAgentTypes,
+    staffing_summary: staffingPlan.staffingSummary,
+    staffing_allocations: staffingPlan.allocations,
+    dynamic_planning_enabled: true,
+    checkpoint_gated: true,
+    final_synthesis_required: true,
+    keep_active_after_launch: true,
+    approved_plan_path: approvedHint?.sourcePath,
+    approved_test_spec_paths: approvedHint?.testSpecPaths ?? [],
+    approved_deep_interview_spec_paths: approvedHint?.deepInterviewSpecPaths ?? [],
+  }, cwd);
+  const instructionsPath = await writeRuningTeamSessionInstructions(cwd, task, {
+    sessionId: controllerSession?.session_id,
+    approvedHint,
+  });
+  if (controllerSession) {
+    console.log(`RuningTeam session created: ${controllerSession.session_id}`);
+    console.log(`State: ${runingTeamPaths(cwd, controllerSession.session_id).root}`);
+  }
+  console.log('[runingteam] Dynamic planning mode active. Launching Codex...');
+  console.log(`[runingteam] available_agent_types: ${staffingPlan.rosterSummary}`);
+  console.log(`[runingteam] staffing_plan: ${staffingPlan.staffingSummary}`);
+  const { launchWithHud } = await import('./index.js');
+  const codexArgsBase = filterRuningTeamCodexArgs(args);
+  const codexArgs = explicitTask === 'runingteam-cli-launch' && approvedHint?.task
+    ? [...codexArgsBase, approvedHint.task]
+    : codexArgsBase;
+  const previousAppendixEnv = process.env[RUNINGTEAM_APPEND_ENV];
+  process.env[RUNINGTEAM_APPEND_ENV] = instructionsPath;
+  try {
+    await launchWithHud(codexArgs);
+  } finally {
+    if (typeof previousAppendixEnv === 'string') process.env[RUNINGTEAM_APPEND_ENV] = previousAppendixEnv;
+    else delete process.env[RUNINGTEAM_APPEND_ENV];
+  }
+}
+
 export async function runingTeamCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const subcommand = args[0];
-  if (!subcommand || subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
+  if (subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
     console.log(RUNINGTEAM_HELP.trim());
+    return;
+  }
+
+  if (!subcommand || subcommand === '--launch' || !['create', 'status', 'checkpoint', 'revise', 'finalize', 'cancel'].includes(subcommand)) {
+    if (hasFlag(args, '--no-launch') || subcommand === 'create') {
+      const taskArgs = subcommand === 'create' ? args.slice(1) : args.filter((arg) => arg !== '--no-launch');
+      const task = taskArgs.join(' ').trim();
+      if (!task) throw new Error('Missing RuningTeam task');
+      const session = await createRuningTeamSession(task, cwd);
+      console.log(`RuningTeam session created: ${session.session_id}`);
+      console.log(`State: ${runingTeamPaths(cwd, session.session_id).root}`);
+      return;
+    }
+    await launchRuningTeamCodex(args.filter((arg) => arg !== '--launch'), cwd);
+    return;
+  }
+
+  if (subcommand === 'create') {
+    const task = args.slice(1).join(' ').trim();
+    if (!task) throw new Error('Missing RuningTeam task');
+    const session = await createRuningTeamSession(task, cwd);
+    console.log(`RuningTeam session created: ${session.session_id}`);
+    console.log(`State: ${runingTeamPaths(cwd, session.session_id).root}`);
     return;
   }
 
@@ -106,14 +284,7 @@ export async function runingTeamCommand(args: string[], cwd = process.cwd()): Pr
     const sessionId = requireSession(args.slice(1));
     await updateRuningTeamSession(cwd, sessionId, { status: 'cancelled', terminal_reason: 'cancelled by user' });
     console.log(`RuningTeam cancelled: ${sessionId}`);
-    return;
   }
-
-  const task = args.join(' ').trim();
-  if (!task) throw new Error('Missing RuningTeam task');
-  const session = await createRuningTeamSession(task, cwd);
-  console.log(`RuningTeam session created: ${session.session_id}`);
-  console.log(`State: ${runingTeamPaths(cwd, session.session_id).root}`);
 }
 
 export { writeFinalSynthesis };

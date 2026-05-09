@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-04-24T07:34:27.399Z",
+  "generatedAt": "2026-05-09T11:00:55.679Z",
   "version": "2026.02.28.1",
   "counts": {
-    "skillCount": 42,
+    "skillCount": 43,
     "promptCount": 30,
-    "activeSkillCount": 27,
+    "activeSkillCount": 28,
     "activeAgentCount": 18
   },
   "coreSkills": [
@@ -12,6 +12,7 @@
     "ralph",
     "ultrawork",
     "team",
+    "runingteam",
     "ralplan"
   ],
   "skills": [
@@ -38,6 +39,13 @@
     },
     {
       "name": "team",
+      "category": "execution",
+      "status": "active",
+      "core": true,
+      "internalRequired": false
+    },
+    {
+      "name": "runingteam",
       "category": "execution",
       "status": "active",
       "core": true,

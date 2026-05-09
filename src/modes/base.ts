@@ -1,6 +1,6 @@
 /**
  * Base mode lifecycle management for oh-my-codex
- * All execution modes (autopilot, autoresearch, deep-interview, ralph, ultrawork, team, ultraqa, ralplan) share this base.
+ * All execution modes (autopilot, autoresearch, deep-interview, ralph, ultrawork, team, runingteam, ultraqa, ralplan) share this base.
  */
 
 import { readFile, writeFile, mkdir, readdir } from 'fs/promises';
@@ -39,7 +39,7 @@ export interface ModeState {
   [key: string]: unknown;
 }
 
-export type ModeName = 'autopilot' | 'autoresearch' | 'deep-interview' | 'ralph' | 'ultrawork' | 'team' | 'ultraqa' | 'ralplan';
+export type ModeName = 'autopilot' | 'autoresearch' | 'deep-interview' | 'ralph' | 'ultrawork' | 'team' | 'runingteam' | 'ultraqa' | 'ralplan';
 
 /** @deprecated These mode names were removed in v4.6. Use the canonical modes instead. */
 export type DeprecatedModeName = 'ultrapilot' | 'pipeline' | 'ecomode';

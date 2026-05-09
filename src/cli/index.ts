@@ -45,6 +45,7 @@ import {
   XHIGH_REASONING_FLAG,
   SPARK_FLAG,
   MADMAX_SPARK_FLAG,
+  RUNINGTEAM_FLAG,
   CONFIG_FLAG,
   LONG_CONFIG_FLAG,
 } from "./constants.js";
@@ -184,7 +185,7 @@ Usage:
   omx deepinit [path]
                 Alias for agents-init (lightweight AGENTS bootstrap only)
   omx team      Spawn parallel worker panes in tmux and bootstrap inbox/task state
-  omx runingteam First-class dynamic planning + team orchestration controller
+  omx runingteam Launch Codex with RuningTeam dynamic planning mode active
   omx ralph     Launch Codex with ralph persistence mode active
   omx autoresearch [DEPRECATED] Use $autoresearch; direct CLI launch removed
   omx version   Show version information
@@ -222,6 +223,8 @@ Options:
                 Workers get the configured low-complexity team model; leader model unchanged
   --madmax-spark  spark model for workers + bypass approvals for leader and workers
                 (shorthand for: --spark --madmax)
+  --runingteam  Launch Codex with RuningTeam dynamic planning mode active
+                (can be combined with --madmax, --high, --xhigh, --spark)
   --notify-temp  Enable temporary notification routing for this run/session only
   --direct       Launch the interactive leader directly without OMX tmux/HUD management
   --tmux         Launch the interactive leader session in detached tmux
@@ -254,6 +257,8 @@ Launch policy:
                 Return to the auto/default policy (detached tmux on supported interactive terminals)
   omx --direct --yolo
                 Run this launch without OMX tmux/HUD management
+  omx --runingteam --madmax
+                Launch interactive RuningTeam mode with Codex approval bypass
   OMX_LAUNCH_POLICY=direct omx --yolo
                 Use direct launch from the environment
   OMX_LAUNCH_POLICY=direct omx --tmux --yolo
@@ -272,6 +277,8 @@ const OMX_RALPH_APPEND_INSTRUCTIONS_FILE_ENV =
   "OMX_RALPH_APPEND_INSTRUCTIONS_FILE";
 const OMX_AUTORESEARCH_APPEND_INSTRUCTIONS_FILE_ENV =
   "OMX_AUTORESEARCH_APPEND_INSTRUCTIONS_FILE";
+const OMX_RUNINGTEAM_APPEND_INSTRUCTIONS_FILE_ENV =
+  "OMX_RUNINGTEAM_APPEND_INSTRUCTIONS_FILE";
 const REASONING_MODES = ["low", "medium", "high", "xhigh"] as const;
 type ReasoningMode = (typeof REASONING_MODES)[number];
 const REASONING_MODE_SET = new Set<string>(REASONING_MODES);
@@ -963,7 +970,11 @@ export async function main(args: string[]): Promise<void> {
   try {
     switch (command) {
       case "launch":
-        await launchWithHud(launchArgs);
+        if (launchArgs.includes(RUNINGTEAM_FLAG)) {
+          await runingTeamCommand(launchArgs.filter((arg) => arg !== RUNINGTEAM_FLAG));
+        } else {
+          await launchWithHud(launchArgs);
+        }
         break;
       case "resume":
         await launchWithHud(["resume", ...launchArgs]);
@@ -1481,6 +1492,12 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
     if (arg === MADMAX_SPARK_FLAG) {
       // Bypass applies to leader; spark model goes to workers only. Consume flag.
       wantsBypass = true;
+      continue;
+    }
+
+    if (arg === RUNINGTEAM_FLAG) {
+      // RuningTeam is an OMX launch profile. Its instructions are injected by the
+      // launcher, not forwarded as a Codex-native flag.
       continue;
     }
 
@@ -2397,6 +2414,7 @@ async function readLaunchAppendInstructions(): Promise<string> {
   const appendixCandidates = [
     process.env[OMX_RALPH_APPEND_INSTRUCTIONS_FILE_ENV]?.trim(),
     process.env[OMX_AUTORESEARCH_APPEND_INSTRUCTIONS_FILE_ENV]?.trim(),
+    process.env[OMX_RUNINGTEAM_APPEND_INSTRUCTIONS_FILE_ENV]?.trim(),
   ].filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
@@ -2750,7 +2768,9 @@ export async function cleanupPostLaunchModeStateFiles(
       const skillStateStillVisible = mode === SKILL_ACTIVE_STATE_MODE
         && Array.isArray(result.state.active_skills)
         && result.state.active_skills.length > 0;
+      const keepModeActiveAfterLaunch = result.state.keep_active_after_launch === true;
       if (result.state.active !== true && !skillStateStillVisible) continue;
+      if (keepModeActiveAfterLaunch && mode !== SKILL_ACTIVE_STATE_MODE) continue;
 
       try {
         const completedAt = now().toISOString();

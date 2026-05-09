@@ -1,9 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runingTeamCommand } from '../runingteam.js';
+import {
+  buildRuningTeamAppendInstructions,
+  extractRuningTeamTaskDescription,
+  filterRuningTeamCodexArgs,
+  runingTeamCommand,
+} from '../runingteam.js';
 import { writeCriticVerdict, writeFinalSynthesis } from '../../runingteam/runtime.js';
 
 async function captureRuningTeam(args: string[], cwd: string): Promise<string[]> {
@@ -19,10 +24,36 @@ async function captureRuningTeam(args: string[], cwd: string): Promise<string[]>
 }
 
 describe('runingteam CLI', () => {
+
+
+  it('extracts task text while preserving Codex launch args for interactive profile mode', () => {
+    assert.equal(extractRuningTeamTaskDescription(['--madmax', '--model', 'gpt-5.5', 'ship', 'feature']), 'ship feature');
+    assert.deepEqual(filterRuningTeamCodexArgs(['--launch', '--madmax', 'ship']), ['--madmax', 'ship']);
+  });
+
+  it('builds launch instructions with dynamic planning contract', () => {
+    const instructions = buildRuningTeamAppendInstructions('ship feature', { sessionId: 'runingteam-demo' });
+    assert.match(instructions, /OMX RuningTeam mode/);
+    assert.match(instructions, /first-class dynamic planning system/);
+    assert.match(instructions, /Plan vN -> team batch -> evidence collection -> Critic review -> Planner revision/);
+    assert.match(instructions, /final synthesis/);
+  });
+
+  it('creates launch-mode state and instructions without spawning when --no-launch is set', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-runingteam-launch-state-'));
+    try {
+      const logs = await captureRuningTeam(['--no-launch', 'ship', 'feature'], cwd);
+      assert.match(logs.join('\n'), /RuningTeam session created: runingteam-/);
+      const instructions = await readFile(join(cwd, '.omx', 'runingteam', 'session-instructions.md'), 'utf-8').catch(() => '');
+      assert.equal(instructions, '', '--no-launch create-only mode must not write launch instructions');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
   it('creates a direct first-class session without invoking team or ralplan commands', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-runingteam-cli-'));
     try {
-      const logs = await captureRuningTeam(['two', 'lane', 'fixture'], cwd);
+      const logs = await captureRuningTeam(['create', 'two', 'lane', 'fixture'], cwd);
       assert.match(logs.join('\n'), /RuningTeam session created: runingteam-/);
       const status = await captureRuningTeam(['status', '--json'], cwd);
       const parsed = JSON.parse(status.join('\n')) as { sessions: Array<{ status: string; plan_version: number }> };
@@ -37,7 +68,7 @@ describe('runingteam CLI', () => {
   it('refuses finalize until final-synthesis.md exists', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-runingteam-finalize-'));
     try {
-      const logs = await captureRuningTeam(['finalize fixture'], cwd);
+      const logs = await captureRuningTeam(['create', 'finalize fixture'], cwd);
       const sessionId = /RuningTeam session created: (\S+)/.exec(logs.join('\n'))?.[1];
       assert.ok(sessionId);
       await assert.rejects(captureRuningTeam(['finalize', sessionId], cwd), /final-synthesis\.md/);

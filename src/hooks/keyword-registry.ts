@@ -38,6 +38,9 @@ export const KEYWORD_TRIGGER_DEFINITIONS: readonly KeywordTriggerDefinition[] = 
   { keyword: '$ralplan', skill: 'ralplan', priority: 11, guidance: 'Activate consensus planning (planner + architect + critic)' },
   { keyword: 'consensus plan', skill: 'ralplan', priority: 11, guidance: 'Activate consensus planning (planner + architect + critic)' },
 
+  { keyword: '$runingteam', skill: 'runingteam', priority: 12, guidance: 'Activate RuningTeam dynamic planning + team orchestration mode' },
+  { keyword: 'runingteam', skill: 'runingteam', priority: 12, guidance: 'Activate RuningTeam dynamic planning + team orchestration mode' },
+
   { keyword: '$autoresearch', skill: 'autoresearch', priority: 10, guidance: 'Activate autoresearch validator-gated research loop' },
 
   { keyword: '$team', skill: 'team', priority: 8, guidance: 'Activate coordinated team mode' },

@@ -692,6 +692,62 @@ fn pane_json_cache_reports_hits_and_since_last_changes() {
 }
 
 #[test]
+fn pane_cache_key_does_not_escape_cache_dir_for_path_like_pane_ids() {
+    let temp = unique_temp_dir("pane-cache-traversal");
+    let tmux = temp.join("tmux");
+    let cache = temp.join("cache");
+    let intermediate = cache.join("pane-..");
+    let outside = temp.join("outside-pr2371.txt");
+
+    fs::create_dir_all(&intermediate).expect("intermediate cache dir");
+    write_executable(&tmux, "#!/bin/sh\nprintf 'safe pane output\n'\n");
+    let path = format!(
+        "{}:{}",
+        temp.display(),
+        env::var("PATH").unwrap_or_default()
+    );
+
+    let output = Command::new(sparkshell_bin())
+        .env("PATH", &path)
+        .env("OMX_SPARKSHELL_CACHE_DIR", cache.display().to_string())
+        .arg("--json")
+        .arg("--tmux-pane")
+        .arg("../../../outside-pr2371")
+        .output()
+        .expect("run sparkshell");
+
+    assert!(
+        output.status.success(),
+        "sparkshell failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !outside.exists(),
+        "path-like pane id wrote outside cache dir at {}",
+        outside.display()
+    );
+
+    let cache_files = fs::read_dir(&cache)
+        .expect("cache dir")
+        .map(|entry| entry.expect("cache entry").path())
+        .collect::<Vec<_>>();
+    assert!(
+        cache_files.iter().any(|path| {
+            path.is_file()
+                && path.parent() == Some(cache.as_path())
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("pane-h") && name.ends_with(".txt"))
+        }),
+        "expected sanitized pane cache file directly under cache dir, got {cache_files:?}"
+    );
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
 fn pane_cache_does_not_persist_raw_secret_like_text() {
     let temp = unique_temp_dir("pane-cache-secret");
     let tmux = temp.join("tmux");

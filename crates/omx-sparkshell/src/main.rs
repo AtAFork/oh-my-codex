@@ -482,9 +482,7 @@ fn handle_cache(
         return Ok(None);
     }
     let key = match &options.target {
-        SparkShellTarget::TmuxPane { pane_id, .. } => {
-            format!("pane-{}", pane_id.replace('%', "pct"))
-        }
+        SparkShellTarget::TmuxPane { pane_id, .. } => pane_cache_key(pane_id),
         SparkShellTarget::Command(_) => return Ok(None),
     };
     let dir = cache_dir();
@@ -495,6 +493,27 @@ fn handle_cache(
         current_hash,
         options.cache_ttl_ms,
     )
+}
+
+fn pane_cache_key(pane_id: &str) -> String {
+    let percent_escaped = pane_id.replace('%', "pct");
+    if percent_escaped
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return format!("pane-{percent_escaped}");
+    }
+
+    format!("pane-h{:016x}", fnv1a64(pane_id.as_bytes()))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn handle_cache_at_path(

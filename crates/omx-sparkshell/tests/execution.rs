@@ -732,10 +732,13 @@ fn pane_cache_key_does_not_escape_cache_dir_for_path_like_pane_ids() {
     let outside = temp.join("outside-pr2371.txt");
 
     fs::create_dir_all(&intermediate).expect("intermediate cache dir");
-    write_executable(&tmux, "#!/bin/sh
+    write_executable(
+        &tmux,
+        "#!/bin/sh
 printf 'safe pane output
 '
-");
+",
+    );
     let path = format!(
         "{}:{}",
         temp.display(),
@@ -789,13 +792,25 @@ fn pane_cache_does_not_persist_raw_secret_like_text() {
     let cache = temp.join("cache");
     let pane = temp.join("pane.txt");
     let secret_line = "OPENAI_API_KEY=sk-test-secret";
-    fs::write(&pane, format!("starting
+    fs::write(
+        &pane,
+        format!(
+            "starting
 {secret_line}
 finished
-")).expect("pane");
-    write_executable(&tmux, &format!("#!/bin/sh
+"
+        ),
+    )
+    .expect("pane");
+    write_executable(
+        &tmux,
+        &format!(
+            "#!/bin/sh
 cat {}
-", pane.display()));
+",
+            pane.display()
+        ),
+    );
     let path = format!(
         "{}:{}",
         temp.display(),
